@@ -604,6 +604,10 @@ int main(int argc, char **argv)
 		DCStoreRange((void*)0x80001800, 0x1800);
 	}
 
+	// Store the aspect ratio for the kernel
+	*(vu32*)0x932C0498 = CONF_GetAspectRatio();
+	DCFlushRange((void*)0x932C0498, 4);
+
 	s32 fd;
 
 	/* Wii VC fw.img is pre-patched but Wii/vWii isnt, so we
@@ -1055,8 +1059,13 @@ int main(int argc, char **argv)
 		else
 			ncfg->Language = NIN_LAN_ENGLISH;
 	}
-
-	if(ncfg->Config & NIN_CFG_MEMCARDEMU)
+	
+	//Check if game is Triforce game
+	u32 IsTRIGame = 0;
+	if (ncfg->GameID != 0x47545050) //Damn you Knights Of The Temple!
+		IsTRIGame = TRISetupGames(ncfg->GamePath, CurDICMD, ISOShift);
+	
+	if( (ncfg->Config & NIN_CFG_MEMCARDEMU) && IsTRIGame == 0 )
 	{
 		// Memory card emulation is enabled.
 		// Set up the memory card file.
@@ -1122,11 +1131,6 @@ int main(int argc, char **argv)
 		__SYS_UnlockSram(1); // 1 -> write changes
 		while(!__SYS_SyncSram());
 	}
-	
-	//Check if game is Triforce game
-	u32 IsTRIGame = 0;
-	if (ncfg->GameID != 0x47545050) //Damn you Knights Of The Temple!
-		IsTRIGame = TRISetupGames(ncfg->GamePath, CurDICMD, ISOShift);
 	
 	if(IsTRIGame != 0)
 	{
