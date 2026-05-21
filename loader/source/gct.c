@@ -26,6 +26,27 @@ static void RemoveLineEnds(char *str)
 	*w = 0;
 }
 
+static void GCT_TrimLine(char *str)
+{
+	char *start = str;
+	char *end;
+
+	while (*start == ' ' || *start == '\t')
+		start++;
+	if (start != str)
+		memmove(str, start, strlen(start) + 1);
+
+	end = str + strlen(str);
+	while (end > str && (end[-1] == ' ' || end[-1] == '\t'))
+		end--;
+	*end = 0;
+}
+
+static int GCT_LineEmpty(const char *line)
+{
+	return !line || line[0] == 0;
+}
+
 int GCT_IsCodeLine(const char *str)
 {
 	char part1[9];
@@ -51,12 +72,16 @@ static void GCT_Clear(GCT_Cheats *out)
 	memset(out, 0, sizeof(*out));
 }
 
-static int GCT_CopyLine(const char **cursor, const char *end, char *line, size_t line_len)
+static int GCT_CopyLine(const char **cursor, const char *end, char *line, size_t line_len,
+	const char **line_start)
 {
 	size_t i = 0;
 
 	if (*cursor >= end)
 		return 0;
+
+	if (line_start)
+		*line_start = *cursor;
 
 	while (*cursor < end && **cursor != '\n' && **cursor != '\r' && i + 1 < line_len)
 		line[i++] = *(*cursor)++;
@@ -65,7 +90,9 @@ static int GCT_CopyLine(const char **cursor, const char *end, char *line, size_t
 	while (*cursor < end && (**cursor == '\n' || **cursor == '\r'))
 		(*cursor)++;
 
-	return (i > 0) ? 1 : 0;
+	RemoveLineEnds(line);
+	GCT_TrimLine(line);
+	return 1;
 }
 
 int GCT_OpenTxtFile(const char *path, GCT_Cheats *out)
@@ -107,21 +134,24 @@ int GCT_OpenTxtFile(const char *path, GCT_Cheats *out)
 	end = buf + rd;
 	p = buf;
 
-	if (!GCT_CopyLine(&p, end, line, sizeof(line)))
+	/* UTF-8 BOM */
+	if (rd >= 3 && (u8)buf[0] == 0xEF && (u8)buf[1] == 0xBB && (u8)buf[2] == 0xBF)
+		p = buf + 3;
+
+	if (!GCT_CopyLine(&p, end, line, sizeof(line), NULL))
 		goto fail;
-	RemoveLineEnds(line);
 	strncpy(out->game_id, line, sizeof(out->game_id) - 1);
 
-	if (!GCT_CopyLine(&p, end, line, sizeof(line)))
+	if (!GCT_CopyLine(&p, end, line, sizeof(line), NULL))
 		goto fail;
-	RemoveLineEnds(line);
 	strncpy(out->game_title, line, sizeof(out->game_title) - 1);
 
 	while (p < end && out->cheat_count < GCT_MAX_CHEATS) {
-		if (!GCT_CopyLine(&p, end, line, sizeof(line)))
+		const char *line_start;
+
+		if (!GCT_CopyLine(&p, end, line, sizeof(line), NULL))
 			break;
-		RemoveLineEnds(line);
-		if (line[0] == 0)
+		if (GCT_LineEmpty(line))
 			continue;
 
 		entry = &out->entries[out->cheat_count];
@@ -129,10 +159,9 @@ int GCT_OpenTxtFile(const char *path, GCT_Cheats *out)
 		strncpy(entry->name, line, sizeof(entry->name) - 1);
 
 		while (p < end) {
-			if (!GCT_CopyLine(&p, end, line, sizeof(line)))
+			if (!GCT_CopyLine(&p, end, line, sizeof(line), &line_start))
 				break;
-			RemoveLineEnds(line);
-			if (line[0] == 0)
+			if (GCT_LineEmpty(line))
 				break;
 
 			if (GCT_IsCodeLine(line)) {
@@ -145,6 +174,12 @@ int GCT_OpenTxtFile(const char *path, GCT_Cheats *out)
 				b = (u32)strtoul(&line[9], NULL, 16);
 				entry->codes[entry->code_count++] = a;
 				entry->codes[entry->code_count++] = b;
+			} else if (entry->code_count > 0) {
+				/* 下一条作弊名（TXT 无空行分隔时，与 UGX 列表一致） */
+				p = line_start;
+				break;
+			} else if (entry->comment[0] == 0) {
+				strncpy(entry->comment, line, sizeof(entry->comment) - 1);
 			}
 		}
 
@@ -245,6 +280,7 @@ void GCT_MarkEnabledFromFile(GCT_Cheats *cheats, const char *gct_path)
 		if (len == 0)
 			continue;
 
+		/* 整段代码块连续匹配（与 UGX IsCheatIncluded 相同） */
 		for (off = sizeof(GCT_Header); off + len <= size - sizeof(GCT_Footer); off += 4) {
 			if (memcmp(e->codes, buf + off, len) == 0) {
 				e->enabled = 1;

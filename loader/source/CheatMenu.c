@@ -13,8 +13,9 @@
 #include "ff_utf8.h"
 #include "../../common/include/CommonConfig.h"
 
-#define CHEAT_LIST_MAX   12
+#define CHEAT_LIST_MAX   10
 #define CHEAT_LINE_Y0    (MENU_POS_Y + 20 * 4)
+#define CHEAT_PREVIEW_Y  (MENU_POS_Y + 20 * 16)
 #define STR_X(len)       ((640 - ((len) * 10)) / 2)
 #define STR_CONST_X(str) STR_X(sizeof(str) - 1)
 
@@ -35,43 +36,6 @@ static void CheatPaths_Build(const gameinfo *gi, char *txt_path, char *gct_path,
 	snprintf(gct_path, len, "%s:/codes/%.6s.gct", GetRootDevice(), gi->ID);
 }
 
-static void CheatMenu_Draw(const gameinfo *gi, const GCT_Cheats *cheats,
-	const char *txt_path, const char *gct_path,
-	s32 scroll, s32 cursor, const char *status)
-{
-	u32 i;
-	s32 y = CHEAT_LINE_Y0;
-	s32 end;
-
-	PrintFormat(DEFAULT_SIZE, BLACK, STR_CONST_X("金手指"), MENU_POS_Y + 20, "金手指");
-	PrintFormat(DEFAULT_SIZE, BLACK, MENU_POS_X, MENU_POS_Y + 20 * 2,
-		"%.6s  %s", gi->ID, cheats->game_title[0] ? cheats->game_title : gi->Name);
-	PrintFormat(DEFAULT_SIZE, GRAY, MENU_POS_X, MENU_POS_Y + 20 * 3,
-		"TXT: %s", txt_path);
-	PrintFormat(DEFAULT_SIZE, GRAY, MENU_POS_X, MENU_POS_Y + 20 * 3 + 16,
-		"GCT: %s", gct_path);
-
-	end = scroll + CHEAT_LIST_MAX;
-	if (end > (s32)cheats->cheat_count)
-		end = cheats->cheat_count;
-
-	for (i = (u32)scroll; i < (u32)end; i++, y += 20) {
-		const GCT_CheatEntry *e = &cheats->entries[i];
-		u32 color = (i == (u32)cursor) ? DARK_BLUE : BLACK;
-		PrintFormat(DEFAULT_SIZE, color, MENU_POS_X, y, "%s",
-			(i == (u32)cursor) ? ARROW_LEFT : " ");
-		PrintFormat(DEFAULT_SIZE, color, MENU_POS_X + 20, y, "%-42.42s", e->name);
-		PrintFormat(DEFAULT_SIZE, color, MENU_POS_X + 450, y, "%s",
-			e->enabled ? "开" : "关");
-	}
-
-	if (status && status[0])
-		PrintFormat(DEFAULT_SIZE, GREEN, MENU_POS_X, MENU_POS_Y + 20 * 18, "%s", status);
-
-	PrintFormat(DEFAULT_SIZE, BLACK, MENU_POS_X, MENU_POS_Y + 20 * 19,
-		"A:开关  X:生成GCT  B:全关  Home:返回");
-}
-
 static int CheatMenu_CountEnabled(const GCT_Cheats *cheats)
 {
 	u16 i, n = 0;
@@ -82,11 +46,91 @@ static int CheatMenu_CountEnabled(const GCT_Cheats *cheats)
 	return n;
 }
 
+static void CheatMenu_DrawPreview(const GCT_Cheats *cheats, s32 cursor)
+{
+	const GCT_CheatEntry *e;
+	u32 y = CHEAT_PREVIEW_Y;
+
+	PrintFormat(DEFAULT_SIZE, DARK_BLUE, MENU_POS_X, y,
+		"-------- 当前项预览 --------");
+	y += 18;
+
+	if (cursor < 0 || cursor >= (s32)cheats->cheat_count) {
+		PrintFormat(DEFAULT_SIZE, GRAY, MENU_POS_X, y, "(无)");
+		return;
+	}
+
+	e = &cheats->entries[cursor];
+	PrintFormat(DEFAULT_SIZE, BLACK, MENU_POS_X, y, "%.60s", e->name);
+	y += 18;
+
+	if (e->comment[0])
+		PrintFormat(DEFAULT_SIZE, GRAY, MENU_POS_X, y, "%.58s", e->comment);
+	y += 18;
+
+	PrintFormat(DEFAULT_SIZE, BLACK, MENU_POS_X, y, "代码行数: %u  (每行 8+8 位)",
+		(unsigned)(e->code_count / 2));
+
+	if (e->code_count >= 2) {
+		y += 18;
+		PrintFormat(DEFAULT_SIZE, GRAY, MENU_POS_X, y, "首行: %08X %08X",
+			e->codes[0], e->codes[1]);
+	}
+	if (e->code_count >= 4) {
+		y += 18;
+		PrintFormat(DEFAULT_SIZE, GRAY, MENU_POS_X, y, "次行: %08X %08X",
+			e->codes[2], e->codes[3]);
+	}
+}
+
+static void CheatMenu_Draw(const gameinfo *gi, const GCT_Cheats *cheats,
+	const char *txt_path, const char *gct_path,
+	s32 scroll, s32 cursor, const char *status)
+{
+	u32 i;
+	s32 y = CHEAT_LINE_Y0;
+	s32 end;
+	int enabled = CheatMenu_CountEnabled(cheats);
+
+	PrintFormat(DEFAULT_SIZE, BLACK, STR_CONST_X("金手指"), MENU_POS_Y + 20, "金手指");
+	PrintFormat(DEFAULT_SIZE, BLACK, MENU_POS_X, MENU_POS_Y + 20 * 2,
+		"%.6s  %s", gi->ID, cheats->game_title[0] ? cheats->game_title : gi->Name);
+	PrintFormat(DEFAULT_SIZE, GRAY, MENU_POS_X, MENU_POS_Y + 20 * 3,
+		"共 %u 项 | 已开 %d 项 | %u/%u", (unsigned)cheats->cheat_count, enabled,
+		(unsigned)(cursor + 1), (unsigned)cheats->cheat_count);
+
+	end = scroll + CHEAT_LIST_MAX;
+	if (end > (s32)cheats->cheat_count)
+		end = cheats->cheat_count;
+
+	for (i = (u32)scroll; i < (u32)end; i++, y += 18) {
+		const GCT_CheatEntry *e = &cheats->entries[i];
+		u32 color = (i == (u32)cursor) ? DARK_BLUE : BLACK;
+		PrintFormat(DEFAULT_SIZE, color, MENU_POS_X, y, "%s",
+			(i == (u32)cursor) ? ARROW_LEFT : " ");
+		PrintFormat(DEFAULT_SIZE, color, MENU_POS_X + 16, y, "%-36.36s", e->name);
+		PrintFormat(DEFAULT_SIZE, color, MENU_POS_X + 380, y, "%2u行",
+			(unsigned)(e->code_count / 2));
+		PrintFormat(DEFAULT_SIZE, color, MENU_POS_X + 430, y, "%s",
+			e->enabled ? "开" : "关");
+	}
+
+	CheatMenu_DrawPreview(cheats, cursor);
+
+	if (status && status[0])
+		PrintFormat(DEFAULT_SIZE, GREEN, MENU_POS_X, MENU_POS_Y + 20 * 19, "%s", status);
+
+	PrintFormat(DEFAULT_SIZE, BLACK, MENU_POS_X, MENU_POS_Y + 20 * 20,
+		"A:开关  X:写入GCT(覆盖)  B:全关  Home:返回");
+	PrintFormat(DEFAULT_SIZE, GRAY, MENU_POS_X, MENU_POS_Y + 20 * 3 + 16,
+		"GCT:%s", gct_path);
+}
+
 void CheatMenu_Show(const gameinfo *gi)
 {
 	char txt_path[128];
 	char gct_path[128];
-	char status[80];
+	char status[96];
 	GCT_Cheats cheats;
 	s32 scroll = 0;
 	s32 cursor = 0;
@@ -108,9 +152,8 @@ void CheatMenu_Show(const gameinfo *gi)
 		return;
 	}
 
+	/* 默认全部关闭；若已有 GCT 则仅勾选其中包含的项（同 USB Loader GX） */
 	GCT_MarkEnabledFromFile(&cheats, gct_path);
-	if (CheatMenu_CountEnabled(&cheats) == 0 && cheats.cheat_count > 0)
-		cheats.entries[0].enabled = 1;
 
 	while (!done) {
 		if (redraw) {
@@ -170,17 +213,19 @@ void CheatMenu_Show(const gameinfo *gi)
 		}
 
 		if (FPAD_X(0)) {
-			if (CheatMenu_CountEnabled(&cheats) == 0) {
-				strncpy(status, "请至少开启一项作弊", sizeof(status) - 1);
+			int n = CheatMenu_CountEnabled(&cheats);
+			if (n == 0) {
+				strncpy(status, "请至少开启一项再生成 GCT", sizeof(status) - 1);
 				redraw = true;
 			} else if (GCT_CreateGCT(&cheats, gct_path)) {
 				ncfg->Config |= NIN_CFG_CHEATS;
 				ncfg->Config &= ~NIN_CFG_CHEAT_PATH;
 				DCFlushRange((void *)ncfg, sizeof(NIN_CFG));
-				strncpy(status, "已生成 GCT，已打开「作弊码」", sizeof(status) - 1);
+				snprintf(status, sizeof(status),
+					"已覆盖写入 GCT (%d/%u 项)", n, (unsigned)cheats.cheat_count);
 				redraw = true;
 			} else {
-				strncpy(status, "写入 GCT 失败", sizeof(status) - 1);
+				strncpy(status, "写入 codes 目录失败", sizeof(status) - 1);
 				redraw = true;
 			}
 		}

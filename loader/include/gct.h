@@ -12,6 +12,7 @@
 
 typedef struct {
 	char name[GCT_NAME_LEN];
+	char comment[64];
 	u32 codes[GCT_MAX_CODES_PER_CHEAT];
 	u16 code_count;
 	u8 enabled;
