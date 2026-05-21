@@ -41,6 +41,7 @@ Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
 #include "../../common/include/CommonConfigStrings.h"
 #include "ff_utf8.h"
 #include "ShowGameInfo.h"
+#include "CheatMenu.h"
 
 // Dark gray for grayed-out menu items.
 #define DARK_GRAY 0x666666FF
@@ -596,6 +597,13 @@ static bool UpdateGameSelectMenu(MenuCtx *ctx)
 			ShowGameInfo(&ctx->games.gi[ctx->games.posX + ctx->games.scrollX]);
 			ctx->redraw = true;
 		}
+	}
+
+	if (FPAD_Y(0) && ctx->games.canBeBooted)
+	{
+		const gameinfo *sel = &ctx->games.gi[ctx->games.posX + ctx->games.scrollX];
+		CheatMenu_Show(sel);
+		ctx->redraw = true;
 	}
 
 	if (FPAD_Down_Repeat(ctx))
@@ -1826,6 +1834,7 @@ static int SelectGame(void)
 				// If the selected game is not DISC01, enable "Game Info".
 				color = ((ctx.games.canShowInfo) ? BLACK : DARK_GRAY);
 				PrintFormat(DEFAULT_SIZE, color, MENU_POS_X + 430, MENU_POS_Y + 20*3, "X/1 : 游戏信息");
+				PrintFormat(DEFAULT_SIZE, color, MENU_POS_X + 430, MENU_POS_Y + 20*4, "Y/2 : 金手指");
 			}
 			else
 			{
